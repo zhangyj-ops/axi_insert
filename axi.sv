@@ -4,9 +4,6 @@
 //author: Yunjie Zhang
 ///////////////////////
 
-// Assumptions: 1. Assume data_in doesn't come in consecutive one byte
-// 2. Assume header signal always comes no later than date signal
-
 // useful boolean single-bit definitions
 `define FALSE  1'h0
 `define TRUE  1'h1
@@ -111,14 +108,16 @@ module axi #(
     logic header_inserted_flag; // High when hbuffer header is inserted
 
     // last pulse record
-    // TODO: monitor last_out is safer
     logic last_finished; // High when a last pulse pass dbuffer, flush the whole hbuffer
-    assign last_finished = ~dbuffer[0].last & dbuffer[1].last; // Assume data_in doesn't come in consecutive one byte
+    assign last_finished = last_out & data_issue_flag; // If last transaction output succeeds
+
+    // Signal detecting pverflow of combining dbuffer[0] with header of dbuffer[1]
+    logic overflow;
     
     // Read data into internal registers for later processing
 
-    // If first entry of data buffer is avalable, read in data (start); Or one dbuffer entry is issued
-    assign ready_in = ~dbuffer[1].busy | data_issue_flag;
+    // If first entry of data buffer is avalable, read in data (start); Or one dbuffer entry is issued. If instered header have not arrived, stop reading data.
+    assign ready_in = (~dbuffer[1].busy | data_issue_flag) & hbuffer_next.busy & ~(overflow & dbuffer[0].last);
 
     // Update next state of buffer
     always_comb begin
@@ -133,7 +132,7 @@ module axi #(
             // dbuffer_next[0].last = last_in;
             // dbuffer_next[0].busy = `TRUE;
         end
-        else if (ready_in) begin
+        else if (data_issue_flag) begin // Whenever succeed in output, shift in an empty packet
             dbuffer_next[1] = dbuffer[0];
             dbuffer_next[0] = empty_dbuffer_entry;
         end
@@ -149,17 +148,17 @@ module axi #(
 
     // Read header
 
-    // If last transaction has been finished (last pulse passed), read in header 
-    assign ready_insert = ~hbuffer.busy;
+    // If last transaction has been finished (last pulse passed), read in header. If the buffer is oppcupied but last one is about to be cleared, it's already okay to read header. 
+    assign ready_insert = ~hbuffer.busy | last_finished;
     // Update next state of buffer
     always_comb begin
         hbuffer_next = hbuffer; // Originally not busy, then not busy before reading header
-        // hbuffer_next.busy = hbuffer.busy & ~last_finished;
-        if (last_finished) begin
-            hbuffer_next = empty_hbuffer_entry; // clear hbuffer if last transaction finished
-        end
+        // Check insert bit first. In single byte transactions, this could be floushed by later operations
         if (header_inserted_flag) begin
             hbuffer_next.inserted = `TRUE;
+        end
+        if (last_finished) begin
+            hbuffer_next = empty_hbuffer_entry; // clear hbuffer if last transaction finished
         end
         if (valid_insert && ready_insert) begin 
             // can read in now
@@ -192,24 +191,25 @@ module axi #(
     // Insert and set data out
     always_comb begin
         data_issue_flag = `FALSE; // Default value
-        header_inserted_flag = `FALSE;
+        header_inserted_flag = `FALSE; // Default value
+        overflow = `FALSE; // Default value
         valid_out = `FALSE;
         data_out = 'h0;
         last_out = `FALSE;
         keep_out = 'b0;
         
-        // TODO: Assume header signal always comes no later than date signal
         // Insert
         if (hbuffer.busy && !hbuffer.inserted && dbuffer[0].busy) begin
             valid_out = `TRUE; // Not inserted, always valid
             data_out = (hbuffer.header << 8 * $countbits(hbuffer.keep, 1'b0)) | dbuffer[0].data >> 8 * $countbits(hbuffer.keep, 1'b1); // Shift header and data and connect them with bit operation
             last_out = dbuffer[0].last & ($countbits(hbuffer.keep, 1'b1) + $countbits(dbuffer[0].keep, 1'b1) <= DATA_BYTE_WD); // If data goes to the last transaction, count the number of valid bits in header and last package 
-            keep_out = dbuffer[0].last & ($countbits(hbuffer.keep, 1'b1) + $countbits(dbuffer[0].keep, 1'b1) <= DATA_BYTE_WD) ? dbuffer[0].keep << $countbits(hbuffer.keep, 1'b0) : {DATA_BYTE_WD{1'b1}};
+            keep_out = dbuffer[0].last & ($countbits(hbuffer.keep, 1'b1) + $countbits(dbuffer[0].keep, 1'b1) <= DATA_BYTE_WD) ? ~(~dbuffer[0].keep >> $countbits(hbuffer.keep, 1'b1)) : {DATA_BYTE_WD{1'b1}}; // If is last transaction, shift in 1s from left into keep signal 
 
             // Check whether can output
             if (ready_out && valid_out) begin
                 data_issue_flag = `TRUE;
                 header_inserted_flag = `TRUE;
+                overflow = $countbits(hbuffer.keep, 1'b1) + $countbits(dbuffer[0].keep, 1'b1) > DATA_BYTE_WD;
             end
             
         end
@@ -217,69 +217,23 @@ module axi #(
             valid_out = `TRUE; // new data input, always valid
             data_out = (dbuffer[1].data << 8 * $countbits(hbuffer.keep, 1'b0)) | dbuffer[0].data >> 8 * $countbits(hbuffer.keep, 1'b1); // Shift header and data and connect them with bit operation
             last_out = dbuffer[0].last & ($countbits(hbuffer.keep, 1'b1) + $countbits(dbuffer[0].keep, 1'b1) <= DATA_BYTE_WD); // If data goes to the last transaction, count the number of valid bits in header and last package 
-            keep_out = dbuffer[0].last & ($countbits(hbuffer.keep, 1'b1) + $countbits(dbuffer[0].keep, 1'b1) <= DATA_BYTE_WD) ? dbuffer[0].keep << $countbits(hbuffer.keep, 1'b0) : {DATA_BYTE_WD{1'b1}};
+            keep_out = dbuffer[0].last & ($countbits(hbuffer.keep, 1'b1) + $countbits(dbuffer[0].keep, 1'b1) <= DATA_BYTE_WD) ? ~(~dbuffer[0].keep >> $countbits(hbuffer.keep, 1'b1)) : {DATA_BYTE_WD{1'b1}}; // If is last transaction, shift in 1s from left into keep signal 
             
             // Check whether can output
             if (ready_out && valid_out) begin
                 data_issue_flag = `TRUE;
-                // hbuffer_next.inserted = `TRUE;
+                overflow = $countbits(hbuffer.keep, 1'b1) + $countbits(dbuffer[0].keep, 1'b1) > DATA_BYTE_WD;
             end
         end
         else if (hbuffer.busy && dbuffer[1].busy) begin // only hbuffer and dbuffer[1] are busy
             valid_out = ($countbits(hbuffer.keep, 1'b1) + $countbits(dbuffer[1].keep, 1'b1) >= DATA_BYTE_WD) ? `TRUE : `FALSE; // Only valid when there's overflow in dbuffer 0
-            data_out = dbuffer[1].data << 8 * $countbits(hbuffer.keep, 1'b0); // Shift overfloew data
+            data_out = dbuffer[1].data << 8 * $countbits(hbuffer.keep, 1'b0); // Shift overflow data
             last_out = ($countbits(hbuffer.keep, 1'b1) + $countbits(dbuffer[1].keep, 1'b1) >= DATA_BYTE_WD) ? `TRUE : `FALSE; // is last if valid
-            keep_out = dbuffer[1].keep << $countbits(hbuffer.keep, 1'b0);
+            keep_out = {DATA_BYTE_WD{1'b1}} << ($countbits(hbuffer.keep, 1'b0) + $countbits(dbuffer[1].keep, 1'b0)); // Must be an overflow case. Shift 0s from right to mark vacancies
 
-            // case(hbuffer.keep)            
-            //     // partial insert
-            //     4'b0111: begin
-            //         valid_out = (dbuffer[1].keep != 4'b1000) ? `TRUE : `FALSE;
-            //         data_out = {dbuffer[1].data[23:0], 8'b0};
-            //         last_out = (dbuffer[1].keep != 4'b1000) ? `TRUE : `FALSE; // is last if valid
-            //         keep_out = dbuffer[1].keep << 1;
-            //         // keep_out = (dbuffer[0].last & (dbuffer[0].keep == 4'b1000)) ? dbuffer[0].keep << 1 : 4'b1111;
-            //     end
-            //     4'b0011: begin
-            //         valid_out = ((dbuffer[1].keep == 4'b1110) | (dbuffer[1].keep == 4'b1111)) ? `TRUE : `FALSE;
-            //         data_out = {dbuffer[1].data[15:0], 16'b0};
-            //         last_out = ((dbuffer[1].keep == 4'b1110) | (dbuffer[1].keep == 4'b1111)) ? `TRUE : `FALSE; // is last if valid
-            //         keep_out = dbuffer[1].keep << 2;                  
-            //     end
-            //     4'b0001: begin
-            //         valid_out = (dbuffer[1].keep == 4'b1111) ? `TRUE : `FALSE;
-            //         data_out = {dbuffer[1].data[7:0], 24'b0};
-            //         last_out = (dbuffer[1].keep == 4'b1111) ? `TRUE : `FALSE; // is last if valid
-            //         keep_out = dbuffer[1].keep << 3;                    
-            //     end        
-
-            //     // whole insert
-            //     4'b1111: begin
-            //         valid_out = `TRUE;
-            //         data_out = dbuffer[1].data;
-            //         last_out = dbuffer[1].last;
-            //         keep_out = dbuffer[1].keep;
-            //     end
-
-            //     // nothing insert
-            //     4'b0000: begin
-            //         valid_out = `FALSE;
-            //         data_out = 32'h0;
-            //         last_out = `FALSE;
-            //         keep_out = 4'b0;
-            //     end
-            //     default: begin
-            //         valid_out = `FALSE;
-            //         data_out = 32'h0;
-            //         last_out = `FALSE;
-            //         keep_out = 4'b0;
-            //     end
-
-            // endcase
             // Check whether can output
             if (ready_out && valid_out) begin
                 data_issue_flag = `TRUE;
-                // hbuffer_next.inserted = `TRUE;
             end
         end
 
@@ -300,40 +254,6 @@ module axi #(
             hbuffer <= `SD hbuffer_next;
         end
     end
-
-
-    // function [DATA_BYTE_WD-1 : 0] num_ones; 
-    //     input   [DATA_BYTE_WD-1 : 0]  value;
-    //     logic   [DATA_BYTE_WD-1 : 0]  ones;
-
-    //     integer i;
-
-    //     always@(value) begin
-    //         ones = 0;  //initialize count variable.
-    //         for(i = 0;i < DATA_BYTE_WD; i = i + 1) begin   //for all the bits.
-    //             ones = ones + value[i]; //Add the bit to the count.
-    //         end
-    //         num_ones = ones;
-    //     end
-
-    // endfunction
-
-    // function [DATA_BYTE_WD-1 : 0] num_zeros; 
-    //     input   [DATA_BYTE_WD-1 : 0]  value;
-    //     logic   [DATA_BYTE_WD-1 : 0]  zeros;
-
-    //     integer i;
-
-    //     always@(value) begin
-    //         ones = 0;  //initialize count variable.
-    //         for(i = 0;i < DATA_BYTE_WD; i = i + 1) begin   //for all the bits.
-    //             if (value[i] == 1'b0)
-    //                 zeros = zeros + 1; //Add the bit to the count.
-    //         end
-    //         num_zeros = zeros;
-    //     end
-
-    // endfunction
 
 
 endmodule

@@ -470,7 +470,7 @@ module axi_tb();
         @(negedge clk)
 
         $display("------------------------------------------------");
-        $display("@@@TESTCASE 5 Signle Byte Data");
+        $display("@@@TESTCASE 5 Signle Byte Data with Intervals");
         $display("------------------------------------------------");
 
         clk = 1'b0;
@@ -565,6 +565,207 @@ module axi_tb();
 
         @(negedge clk)
         @(negedge clk)
+        @(negedge clk)
+        valid_in = `TRUE;//
+        data_in = 32'h8899AABB;
+        keep_in = 4'b1000;
+        last_in = `TRUE;
+        ready_out = `TRUE;//
+        valid_insert = `TRUE;
+        header_insert = 32'hCC00FFEE;
+        keep_insert = 4'b0011;
+
+        $monitor("time = %d ,clk = %b, rst_n = %b, ready_in = %b, ready_insert = %b, valid_out = %b, data_out = %x, keep_out = %b, last_out = %b", $time ,clk, rst_n, ready_in, ready_insert, valid_out, data_out, keep_out, last_out);
+
+        @(negedge clk)
+        valid_in = 1'b0;//
+        data_in = 32'h0;
+        keep_in = 4'b0;
+        last_in = 1'b0;
+        ready_out = 1'b1;//
+        valid_insert = 1'b0;
+        header_insert = 32'h0;
+        keep_insert = 4'b0;
+        
+        $monitor("time = %d ,clk = %b, rst_n = %b, ready_in = %b, ready_insert = %b, valid_out = %b, data_out = %x, keep_out = %b, last_out = %b", $time ,clk, rst_n, ready_in, ready_insert, valid_out, data_out, keep_out, last_out);
+
+        @(negedge clk)
+        @(negedge clk)
+        @(negedge clk)
+
+        $display("------------------------------------------------");
+        $display("@@@TESTCASE 6 Header Late Arrival");
+        $display("------------------------------------------------");
+
+        clk = 1'b0;
+        rst_n = 1'b0;
+        valid_in = `TRUE;//
+        data_in = 32'hAABBCCDD;
+        keep_in = 4'b1111;
+        last_in = `FALSE;
+        ready_out = `TRUE;//
+        valid_insert = `FALSE;
+        header_insert = 32'h0;
+        keep_insert = 4'b0;
+
+        @(negedge clk)
+
+        @(negedge clk)
+        rst_n = 1'b1;
+        valid_in = `TRUE;//
+        data_in = 32'hAABBCCDD;
+        keep_in = 4'b1111;
+        last_in = `FALSE;
+        ready_out = `TRUE;//
+        valid_insert = `FALSE;
+        header_insert = 32'h0;
+        keep_insert = 4'b0;
+
+        $monitor("time = %d ,clk = %b, rst_n = %b, ready_in = %b, ready_insert = %b, valid_out = %b, data_out = %x, keep_out = %b, last_out = %b", $time ,clk, rst_n, ready_in, ready_insert, valid_out, data_out, keep_out, last_out);
+
+        @(negedge clk)
+        rst_n = 1'b1;
+        valid_in = `TRUE;//
+        data_in = 32'hAABBCCDD;
+        keep_in = 4'b1111;
+        last_in = `FALSE;
+        ready_out = `TRUE;//
+        valid_insert = `TRUE;
+        header_insert = 32'hFFEEDDCC;
+        keep_insert = 4'b0111;
+
+        $monitor("time = %d ,clk = %b, rst_n = %b, ready_in = %b, ready_insert = %b, valid_out = %b, data_out = %x, keep_out = %b, last_out = %b", $time ,clk, rst_n, ready_in, ready_insert, valid_out, data_out, keep_out, last_out);
+
+        @(negedge clk)
+        valid_in = 1'b1;//
+        data_in = 32'hEEFF0011;
+        keep_in = 4'b1111;
+        last_in = 1'b0;
+        ready_out = 1'b1;//
+        valid_insert = `FALSE;
+        header_insert = 32'h0;
+        keep_insert = 4'b0;
+        
+        $monitor("time = %d ,clk = %b, rst_n = %b, ready_in = %b, ready_insert = %b, valid_out = %b, data_out = %x, keep_out = %b, last_out = %b", $time ,clk, rst_n, ready_in, ready_insert, valid_out, data_out, keep_out, last_out);
+
+        @(negedge clk)
+        valid_in = 1'b1;//
+        data_in = 32'h22334455;
+        keep_in = 4'b1111;
+        last_in = 1'b0;
+        ready_out = 1'b1;//
+        valid_insert = 1'b0;
+        header_insert = 32'h0;
+        keep_insert = 4'b0;
+        
+        $monitor("time = %d ,clk = %b, rst_n = %b, ready_in = %b, ready_insert = %b, valid_out = %b, data_out = %x, keep_out = %b, last_out = %b", $time ,clk, rst_n, ready_in, ready_insert, valid_out, data_out, keep_out, last_out);
+
+        @(negedge clk)
+        valid_in = 1'b1;//
+        data_in = 32'h66778899;
+        keep_in = 4'b1111;
+        last_in = 1'b0;
+        ready_out = 1'b1;//
+        valid_insert = 1'b0;
+        header_insert = 32'h0;
+        keep_insert = 4'b0;
+        
+        $monitor("time = %d ,clk = %b, rst_n = %b, ready_in = %b, ready_insert = %b, valid_out = %b, data_out = %x, keep_out = %b, last_out = %b", $time ,clk, rst_n, ready_in, ready_insert, valid_out, data_out, keep_out, last_out);
+
+        @(negedge clk)
+        valid_in = 1'b1;//
+        data_in = 32'h00AA8888;
+        keep_in = 4'b1100;
+        last_in = 1'b1;
+        ready_out = 1'b1;//
+        valid_insert = 1'b0;
+        header_insert = 32'h0;
+        keep_insert = 4'b0;
+        
+        $monitor("time = %d ,clk = %b, rst_n = %b, ready_in = %b, ready_insert = %b, valid_out = %b, data_out = %x, keep_out = %b, last_out = %b", $time ,clk, rst_n, ready_in, ready_insert, valid_out, data_out, keep_out, last_out);
+
+        @(negedge clk)
+        valid_in = 1'b0;//
+        data_in = 32'h0;
+        keep_in = 4'b0;
+        last_in = 1'b0;
+        ready_out = 1'b1;//
+        valid_insert = 1'b0;
+        header_insert = 32'h0;
+        keep_insert = 4'b0;
+        
+        $monitor("time = %d ,clk = %b, rst_n = %b, ready_in = %b, ready_insert = %b, valid_out = %b, data_out = %x, keep_out = %b, last_out = %b", $time ,clk, rst_n, ready_in, ready_insert, valid_out, data_out, keep_out, last_out);
+        @(negedge clk)
+        @(negedge clk)
+        @(negedge clk)
+
+        $display("------------------------------------------------");
+        $display("@@@TESTCASE 7 Single Byte Data without Intervals");
+        $display("------------------------------------------------");
+        // Continue sending data whenevr ready is high
+
+        clk = 1'b0;
+        rst_n = 1'b0;
+        valid_in = `FALSE;//
+        data_in = 32'h0;
+        keep_in = 4'b0;
+        last_in = `FALSE;
+        ready_out = `TRUE;//
+        valid_insert = `FALSE;
+        header_insert = 32'h0;
+        keep_insert = 4'b0;
+
+        @(negedge clk)
+
+        @(negedge clk)
+        rst_n = 1'b1;
+        valid_in = `TRUE;//
+        data_in = 32'hAABBCCDD;
+        keep_in = 4'b1111;
+        last_in = `TRUE;
+        ready_out = `TRUE;//
+        valid_insert = `TRUE;
+        header_insert = 32'hCC00FFEE;
+        keep_insert = 4'b0011;
+
+        $monitor("time = %d ,clk = %b, rst_n = %b, ready_in = %b, ready_insert = %b, valid_out = %b, data_out = %x, keep_out = %b, last_out = %b", $time ,clk, rst_n, ready_in, ready_insert, valid_out, data_out, keep_out, last_out);
+
+        @(negedge clk)
+        valid_in = `TRUE;//
+        data_in = 32'h00112233;
+        keep_in = 4'b1110;
+        last_in = `TRUE;
+        ready_out = `TRUE;//
+        valid_insert = `TRUE;
+        header_insert = 32'hCC00FFEE;
+        keep_insert = 4'b0001;
+        
+        $monitor("time = %d ,clk = %b, rst_n = %b, ready_in = %b, ready_insert = %b, valid_out = %b, data_out = %x, keep_out = %b, last_out = %b", $time ,clk, rst_n, ready_in, ready_insert, valid_out, data_out, keep_out, last_out);
+
+        @(negedge clk)
+        valid_in = `TRUE;//
+        data_in = 32'h00112233;
+        keep_in = 4'b1110;
+        last_in = `TRUE;
+        ready_out = `TRUE;//
+        valid_insert = `TRUE;
+        header_insert = 32'hCC00FFEE;
+        keep_insert = 4'b0001;
+
+        $monitor("time = %d ,clk = %b, rst_n = %b, ready_in = %b, ready_insert = %b, valid_out = %b, data_out = %x, keep_out = %b, last_out = %b", $time ,clk, rst_n, ready_in, ready_insert, valid_out, data_out, keep_out, last_out);
+
+        @(negedge clk)
+        valid_in = `TRUE;//
+        data_in = 32'h44556677;
+        keep_in = 4'b1100;
+        last_in = `TRUE;
+        ready_out = `TRUE;//
+        valid_insert = `TRUE;
+        header_insert = 32'hCC00FFEE;
+        keep_insert = 4'b0011;
+
+        $monitor("time = %d ,clk = %b, rst_n = %b, ready_in = %b, ready_insert = %b, valid_out = %b, data_out = %x, keep_out = %b, last_out = %b", $time ,clk, rst_n, ready_in, ready_insert, valid_out, data_out, keep_out, last_out);
+
         @(negedge clk)
         valid_in = `TRUE;//
         data_in = 32'h8899AABB;
