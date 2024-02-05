@@ -44,6 +44,23 @@ typedef struct packed {
     logic         busy;
 } HBUFFER_ENTRY;
 
+
+// Count te one-hot encoding of keep signal
+// function 	    [DATA_WD:0] 	swar;
+// 	input		[DATA_WD:0]		data_in;
+// 	logic		[DATA_WD:0]		i;
+// 		begin
+// 				i	=	data_in;		
+// 				i 	=	(i & 32'h5555_5555) + ({1'b0, i[DATA_WD:1]} & 32'h5555_5555);
+// 				i 	=	(i & 32'h3333_3333) + ({1'b0, i[DATA_WD:2]} & 32'h3333_3333);
+// 				i 	=	(i & 32'h0F0F_0F0F) + ({1'b0, i[DATA_WD:4]} & 32'h0F0F_0F0F);
+// 				i 	= 	i * (32'h0101_0101);
+// 				swar =	i[31:24];
+// 		end
+// endfunction
+
+
+
 module axi #(
     parameter DATA_WD = 32,
     parameter DATA_BYTE_WD = DATA_WD / 8
@@ -153,64 +170,42 @@ module axi #(
             // hbuffer_next.busy = `TRUE;
         end
     end
+    
+    // Debug signals
+    logic [3:0] header_ones;
+    logic [3:0] header_zeros;    
+    logic [3:0] data0_ones;
+    logic [3:0] data0_zeros;
+
+    always_comb begin
+    header_ones = $countbits(hbuffer.keep, 1'b1);
+    header_zeros = $countbits(hbuffer.keep, 1'b0);
+    data0_ones = $countbits(dbuffer[0].keep, 1'b1);
+    data0_zeros = $countbits(dbuffer[0].keep, 1'b0);
+    end
+    
+    logic [31:0] data_out_h;
+    assign data_out_h = hbuffer.header << 8 * $countbits(hbuffer.keep, 1'b0);
+    logic [31:0] data_out_d;
+    assign data_out_d = dbuffer[0].data >> 8 * $countbits(hbuffer.keep, 1'b1);
 
     // Insert and set data out
     always_comb begin
         data_issue_flag = `FALSE; // Default value
         header_inserted_flag = `FALSE;
         valid_out = `FALSE;
-        data_out = 32'h0;
+        data_out = 'h0;
         last_out = `FALSE;
-        keep_out = 4'b0;
+        keep_out = 'b0;
+        
         // TODO: Assume header signal always comes no later than date signal
         // Insert
         if (hbuffer.busy && !hbuffer.inserted && dbuffer[0].busy) begin
-            case(hbuffer.keep)            
-                // partial insert
-                4'b0111: begin
-                    valid_out = `TRUE;
-                    data_out = {hbuffer.header[23:0], dbuffer[0].data[31:24]};
-                    last_out = dbuffer[0].last & (dbuffer[0].keep == 4'b1000);
-                    keep_out = 4'b1111;
-                    // keep_out = (dbuffer[0].last & (dbuffer[0].keep == 4'b1000)) ? dbuffer[0].keep << 1 : 4'b1111;
-                end
-                4'b0011: begin
-                    valid_out = `TRUE;
-                    data_out = {hbuffer.header[15:0], dbuffer[0].data[31:16]};
-                    last_out = dbuffer[0].last & ((dbuffer[0].keep == 4'b1000) | (dbuffer[0].keep == 4'b1100));
-                    keep_out = (dbuffer[0].last & (dbuffer[0].keep == 4'b1000)) ? 4'b1110 : 4'b1111;                    
-                end
-                4'b0001: begin
-                    valid_out = `TRUE;
-                    data_out = {hbuffer.header[7:0], dbuffer[0].data[31:8]};
-                    last_out = dbuffer[0].last & (dbuffer[0].keep != 4'b1111);
-                    keep_out = (dbuffer[0].last & (dbuffer[0].keep == 4'b1000)) ? 4'b1100 : 
-                               (dbuffer[0].last & (dbuffer[0].keep == 4'b1100)) ? 4'b1110 : 4'b1111;                     
-                end        
+            valid_out = `TRUE; // Not inserted, always valid
+            data_out = (hbuffer.header << 8 * $countbits(hbuffer.keep, 1'b0)) | dbuffer[0].data >> 8 * $countbits(hbuffer.keep, 1'b1); // Shift header and data and connect them with bit operation
+            last_out = dbuffer[0].last & ($countbits(hbuffer.keep, 1'b1) + $countbits(dbuffer[0].keep, 1'b1) <= DATA_BYTE_WD); // If data goes to the last transaction, count the number of valid bits in header and last package 
+            keep_out = dbuffer[0].last & ($countbits(hbuffer.keep, 1'b1) + $countbits(dbuffer[0].keep, 1'b1) <= DATA_BYTE_WD) ? dbuffer[0].keep << $countbits(hbuffer.keep, 1'b0) : {DATA_BYTE_WD{1'b1}};
 
-                // whole insert
-                4'b1111: begin
-                    valid_out = `TRUE;
-                    data_out = hbuffer.header;
-                    last_out = `FALSE; // Could not be last transaction
-                    keep_out = 4'b1111;
-                end
-
-                // nothing insert
-                4'b0000: begin
-                    valid_out = `TRUE;
-                    data_out = dbuffer[0].data;
-                    last_out = dbuffer[0].last;
-                    keep_out = dbuffer[0].keep;
-                end
-                default: begin
-                    valid_out = `FALSE;
-                    data_out = 32'h0;
-                    last_out = `FALSE;
-                    keep_out = 4'b0;
-                end
-
-            endcase
             // Check whether can output
             if (ready_out && valid_out) begin
                 data_issue_flag = `TRUE;
@@ -219,52 +214,11 @@ module axi #(
             
         end
         else if (hbuffer.busy && dbuffer[0].busy && dbuffer[1].busy) begin // Shift data based on keep in header buffer and output
-            case(hbuffer.keep)            
-                // partial insert
-                4'b0111: begin
-                    valid_out = `TRUE;
-                    data_out = {dbuffer[1].data[23:0], dbuffer[0].data[31:24]};
-                    last_out = dbuffer[0].last & (dbuffer[0].keep == 4'b1000);
-                    keep_out = 4'b1111;
-                    // keep_out = (dbuffer[0].last & (dbuffer[0].keep == 4'b1000)) ? dbuffer[0].keep << 1 : 4'b1111;
-                end
-                4'b0011: begin
-                    valid_out = `TRUE;
-                    data_out = {dbuffer[1].data[15:0], dbuffer[0].data[31:16]};
-                    last_out = dbuffer[0].last & ((dbuffer[0].keep == 4'b1000) | (dbuffer[0].keep == 4'b1100));
-                    keep_out = (dbuffer[0].last & (dbuffer[0].keep == 4'b1000)) ? 4'b1110 : 4'b1111;                    
-                end
-                4'b0001: begin
-                    valid_out = `TRUE;
-                    data_out = {dbuffer[1].data[7:0], dbuffer[0].data[31:8]};
-                    last_out = dbuffer[0].last & (dbuffer[0].keep != 4'b1111);
-                    keep_out = (dbuffer[0].last & (dbuffer[0].keep == 4'b1000)) ? 4'b1100 : 
-                               (dbuffer[0].last & (dbuffer[0].keep == 4'b1100)) ? 4'b1110 : 4'b1111;                     
-                end        
-
-                // whole insert
-                4'b1111: begin
-                    valid_out = `TRUE;
-                    data_out = dbuffer[1].data;
-                    last_out = `FALSE; // Could not be last transaction
-                    keep_out = 4'b1111;
-                end
-
-                // nothing insert
-                4'b0000: begin
-                    valid_out = `TRUE;
-                    data_out = dbuffer[0].data;
-                    last_out = dbuffer[0].last;
-                    keep_out = dbuffer[0].keep;
-                end
-                default: begin
-                    valid_out = `FALSE;
-                    data_out = 32'h0;
-                    last_out = `FALSE;
-                    keep_out = 4'b0;
-                end
-
-            endcase
+            valid_out = `TRUE; // new data input, always valid
+            data_out = (dbuffer[1].data << 8 * $countbits(hbuffer.keep, 1'b0)) | dbuffer[0].data >> 8 * $countbits(hbuffer.keep, 1'b1); // Shift header and data and connect them with bit operation
+            last_out = dbuffer[0].last & ($countbits(hbuffer.keep, 1'b1) + $countbits(dbuffer[0].keep, 1'b1) <= DATA_BYTE_WD); // If data goes to the last transaction, count the number of valid bits in header and last package 
+            keep_out = dbuffer[0].last & ($countbits(hbuffer.keep, 1'b1) + $countbits(dbuffer[0].keep, 1'b1) <= DATA_BYTE_WD) ? dbuffer[0].keep << $countbits(hbuffer.keep, 1'b0) : {DATA_BYTE_WD{1'b1}};
+            
             // Check whether can output
             if (ready_out && valid_out) begin
                 data_issue_flag = `TRUE;
@@ -272,51 +226,56 @@ module axi #(
             end
         end
         else if (hbuffer.busy && dbuffer[1].busy) begin // only hbuffer and dbuffer[1] are busy
-            case(hbuffer.keep)            
-                // partial insert
-                4'b0111: begin
-                    valid_out = (dbuffer[1].keep != 4'b1000) ? `TRUE : `FALSE;
-                    data_out = {dbuffer[1].data[23:0], 8'b0};
-                    last_out = (dbuffer[1].keep != 4'b1000) ? `TRUE : `FALSE; // is last if valid
-                    keep_out = dbuffer[1].keep << 1;
-                    // keep_out = (dbuffer[0].last & (dbuffer[0].keep == 4'b1000)) ? dbuffer[0].keep << 1 : 4'b1111;
-                end
-                4'b0011: begin
-                    valid_out = ((dbuffer[1].keep == 4'b1110) | (dbuffer[1].keep == 4'b1111)) ? `TRUE : `FALSE;
-                    data_out = {dbuffer[1].data[15:0], 16'b0};
-                    last_out = ((dbuffer[1].keep == 4'b1110) | (dbuffer[1].keep == 4'b1111)) ? `TRUE : `FALSE; // is last if valid
-                    keep_out = dbuffer[1].keep << 2;                  
-                end
-                4'b0001: begin
-                    valid_out = (dbuffer[1].keep == 4'b1111) ? `TRUE : `FALSE;
-                    data_out = {dbuffer[1].data[7:0], 24'b0};
-                    last_out = (dbuffer[1].keep == 4'b1111) ? `TRUE : `FALSE; // is last if valid
-                    keep_out = dbuffer[1].keep << 3;                    
-                end        
+            valid_out = ($countbits(hbuffer.keep, 1'b1) + $countbits(dbuffer[1].keep, 1'b1) >= DATA_BYTE_WD) ? `TRUE : `FALSE; // Only valid when there's overflow in dbuffer 0
+            data_out = dbuffer[1].data << 8 * $countbits(hbuffer.keep, 1'b0); // Shift overfloew data
+            last_out = ($countbits(hbuffer.keep, 1'b1) + $countbits(dbuffer[1].keep, 1'b1) >= DATA_BYTE_WD) ? `TRUE : `FALSE; // is last if valid
+            keep_out = dbuffer[1].keep << $countbits(hbuffer.keep, 1'b0);
 
-                // whole insert
-                4'b1111: begin
-                    valid_out = `TRUE;
-                    data_out = dbuffer[1].data;
-                    last_out = dbuffer[1].last;
-                    keep_out = dbuffer[1].keep;
-                end
+            // case(hbuffer.keep)            
+            //     // partial insert
+            //     4'b0111: begin
+            //         valid_out = (dbuffer[1].keep != 4'b1000) ? `TRUE : `FALSE;
+            //         data_out = {dbuffer[1].data[23:0], 8'b0};
+            //         last_out = (dbuffer[1].keep != 4'b1000) ? `TRUE : `FALSE; // is last if valid
+            //         keep_out = dbuffer[1].keep << 1;
+            //         // keep_out = (dbuffer[0].last & (dbuffer[0].keep == 4'b1000)) ? dbuffer[0].keep << 1 : 4'b1111;
+            //     end
+            //     4'b0011: begin
+            //         valid_out = ((dbuffer[1].keep == 4'b1110) | (dbuffer[1].keep == 4'b1111)) ? `TRUE : `FALSE;
+            //         data_out = {dbuffer[1].data[15:0], 16'b0};
+            //         last_out = ((dbuffer[1].keep == 4'b1110) | (dbuffer[1].keep == 4'b1111)) ? `TRUE : `FALSE; // is last if valid
+            //         keep_out = dbuffer[1].keep << 2;                  
+            //     end
+            //     4'b0001: begin
+            //         valid_out = (dbuffer[1].keep == 4'b1111) ? `TRUE : `FALSE;
+            //         data_out = {dbuffer[1].data[7:0], 24'b0};
+            //         last_out = (dbuffer[1].keep == 4'b1111) ? `TRUE : `FALSE; // is last if valid
+            //         keep_out = dbuffer[1].keep << 3;                    
+            //     end        
 
-                // nothing insert
-                4'b0000: begin
-                    valid_out = `FALSE;
-                    data_out = 32'h0;
-                    last_out = `FALSE;
-                    keep_out = 4'b0;
-                end
-                default: begin
-                    valid_out = `FALSE;
-                    data_out = 32'h0;
-                    last_out = `FALSE;
-                    keep_out = 4'b0;
-                end
+            //     // whole insert
+            //     4'b1111: begin
+            //         valid_out = `TRUE;
+            //         data_out = dbuffer[1].data;
+            //         last_out = dbuffer[1].last;
+            //         keep_out = dbuffer[1].keep;
+            //     end
 
-            endcase
+            //     // nothing insert
+            //     4'b0000: begin
+            //         valid_out = `FALSE;
+            //         data_out = 32'h0;
+            //         last_out = `FALSE;
+            //         keep_out = 4'b0;
+            //     end
+            //     default: begin
+            //         valid_out = `FALSE;
+            //         data_out = 32'h0;
+            //         last_out = `FALSE;
+            //         keep_out = 4'b0;
+            //     end
+
+            // endcase
             // Check whether can output
             if (ready_out && valid_out) begin
                 data_issue_flag = `TRUE;
@@ -343,7 +302,38 @@ module axi #(
     end
 
 
+    // function [DATA_BYTE_WD-1 : 0] num_ones; 
+    //     input   [DATA_BYTE_WD-1 : 0]  value;
+    //     logic   [DATA_BYTE_WD-1 : 0]  ones;
 
+    //     integer i;
+
+    //     always@(value) begin
+    //         ones = 0;  //initialize count variable.
+    //         for(i = 0;i < DATA_BYTE_WD; i = i + 1) begin   //for all the bits.
+    //             ones = ones + value[i]; //Add the bit to the count.
+    //         end
+    //         num_ones = ones;
+    //     end
+
+    // endfunction
+
+    // function [DATA_BYTE_WD-1 : 0] num_zeros; 
+    //     input   [DATA_BYTE_WD-1 : 0]  value;
+    //     logic   [DATA_BYTE_WD-1 : 0]  zeros;
+
+    //     integer i;
+
+    //     always@(value) begin
+    //         ones = 0;  //initialize count variable.
+    //         for(i = 0;i < DATA_BYTE_WD; i = i + 1) begin   //for all the bits.
+    //             if (value[i] == 1'b0)
+    //                 zeros = zeros + 1; //Add the bit to the count.
+    //         end
+    //         num_zeros = zeros;
+    //     end
+
+    // endfunction
 
 
 endmodule
