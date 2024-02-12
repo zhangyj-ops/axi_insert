@@ -13,12 +13,14 @@
 `define SD #1
 
 
+
 module axi_tb();
     parameter DATA_DEPTH =256;
     parameter DATA_WD = 32;
     parameter DATA_BYTE_WD = DATA_WD / 8;
     parameter DATA_CNT=DATA_DEPTH/DATA_WD;
     parameter BYTE_CNT_WD = $clog2(DATA_BYTE_WD);
+    parameter CLOCK_PERIOD=10;
 
     logic clk;
     logic rst_n;
@@ -59,13 +61,20 @@ module axi_tb();
         .keep_insert(keep_insert),
         .ready_insert(ready_insert)
     );
-    initial begin
 
+    initial begin 
+        clk = '0;
+        forever begin
+            #10 clk = ~clk;
+        end
+    end
+
+    initial begin
         $display("------------------------------------------------");
         $display("@@@TESTCASE 1 BASIC PARTIAL");
         $display("------------------------------------------------");
 
-        clk = 1'b0;
+        // clk = 1'b0;
         rst_n = 1'b0;
         valid_in = `TRUE;//
         data_in = 32'hAABBCCDD;
@@ -800,5 +809,5 @@ module axi_tb();
     end
 
 
-    always #10 clk=!clk;
+    // always #10 clk=!clk;
 endmodule
