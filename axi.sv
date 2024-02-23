@@ -81,29 +81,6 @@ module byte_shifter_right #(
     end
 endmodule
 
-// module bitcounter #( // bit counter to count 1s or 0s in keep signal
-//     parameter DATA_WD = 32,
-//     parameter DATA_BYTE_WD = DATA_WD / 8
-//     )(
-//     input  logic [DATA_BYTE_WD-1 : 0] keep_in,
-//     input                             pattern, // Can be zero or 1
-//     output logic [DATA_BYTE_WD-1 : 0] count
-//     );
-//     logic keep;
-
-//     always_comb begin
-//         count = 0;
-//         keep = keep_in;
-//         for (int i = 0; i < DATA_BYTE_WD; i++) begin
-//             count = count + keep[0];
-//             keep = keep >> 1;
-            
-//         end
-//         count = (pattern == 1'b1) ? count : (DATA_BYTE_WD - count);
-//     end
-
-// endmodule
-
 module bitcounter #( // bit counter to count 1s or 0s in keep signal
     parameter DATA_WD = 32,
     parameter DATA_BYTE_WD = DATA_WD / 8
@@ -112,14 +89,17 @@ module bitcounter #( // bit counter to count 1s or 0s in keep signal
     input                             pattern, // Can be zero or 1
     output logic [DATA_BYTE_WD-1 : 0] count
     );
+    logic [DATA_BYTE_WD-1 : 0] keep;
 
     always_comb begin
         count = 0;
+        keep = keep_in;
         for (int i = 0; i < DATA_BYTE_WD; i++) begin
-            if (keep_in[i] == pattern) begin
-                count = count + 1;
-            end
+            count = count + keep[0];
+            keep = keep >> 1;
+            
         end
+        count = (pattern == 1'b1) ? count : (DATA_BYTE_WD - count);
     end
 
 endmodule
@@ -188,10 +168,6 @@ module axi #(
             // can read in now
             dbuffer_next[1] = dbuffer[0];
             dbuffer_next[0] = {data_in, keep_in, last_in, `TRUE};
-            // dbuffer_next[0].data = data_in;
-            // dbuffer_next[0].keep = keep_in;
-            // dbuffer_next[0].last = last_in;
-            // dbuffer_next[0].busy = `TRUE;
         end
         else if (data_issue_flag) begin // Whenever succeed in output, shift in an empty packet
             dbuffer_next[1] = dbuffer[0];
