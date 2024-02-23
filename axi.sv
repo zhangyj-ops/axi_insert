@@ -38,7 +38,29 @@ typedef struct packed {
     logic         busy;
 } HBUFFER_ENTRY;
 
-module byte_shifter #(
+module byte_shifter_left #(
+    parameter DATA_WD = 32,
+    parameter DATA_BYTE_WD = DATA_WD / 8
+    )(
+    input     [DATA_WD-1 : 0]  data_in,  // data before shift
+    input     [DATA_BYTE_WD-1 : 0]  num, // number of bytes to be shifted
+    output logic   [DATA_WD-1 : 0]  data_out  // Shifted data
+    );
+
+    always_comb begin
+        // Shift left
+        case(num) 
+            'd0: data_out = data_in;
+            'd1: data_out = {data_in[23:0], 8'b0};
+            'd2: data_out = {data_in[15:0], 16'b0}; // Shift 2 bytes
+            'd3: data_out = {data_in[7:0], 24'b0};  // Shift 3 bytes
+            default: data_out = 'b0; // Shift out of range
+        endcase
+
+    end
+endmodule
+
+module byte_shifter_right #(
     parameter DATA_WD = 32,
     parameter DATA_BYTE_WD = DATA_WD / 8
     )(
@@ -49,28 +71,38 @@ module byte_shifter #(
     );
 
     always_comb begin
-        // Shift left
-        if (dir == 1'b0) begin
-            case(num) 
-                'd0: data_out = data_in;
-                'd1: data_out = {data_in[23:0], 8'b0};
-                'd2: data_out = {data_in[15:0], 16'b0}; // Shift 2 bytes
-                'd3: data_out = {data_in[7:0], 24'b0};  // Shift 3 bytes
-                default: data_out = 'b0; // Shift out of range
-            endcase
-        end
-        // Shift right
-        else begin
-            case(num)
-                'd0: data_out = data_in;
-                'd1: data_out = {8'b0, data_in[31:8]}; // Shift 1 byte
-                'd2: data_out = {16'b0, data_in[31:16]}; // Shift 2 bytes
-                'd3: data_out = {24'b0, data_in[31:24]}; // Shift 3 bytes
-                default: data_out = 'b0; // Shift out of range
-            endcase
-        end
+        case(num)
+            'd0: data_out = data_in;
+            'd1: data_out = {8'b0, data_in[31:8]}; // Shift 1 byte
+            'd2: data_out = {16'b0, data_in[31:16]}; // Shift 2 bytes
+            'd3: data_out = {24'b0, data_in[31:24]}; // Shift 3 bytes
+            default: data_out = 'b0; // Shift out of range
+        endcase
     end
 endmodule
+
+// module bitcounter #( // bit counter to count 1s or 0s in keep signal
+//     parameter DATA_WD = 32,
+//     parameter DATA_BYTE_WD = DATA_WD / 8
+//     )(
+//     input  logic [DATA_BYTE_WD-1 : 0] keep_in,
+//     input                             pattern, // Can be zero or 1
+//     output logic [DATA_BYTE_WD-1 : 0] count
+//     );
+//     logic keep;
+
+//     always_comb begin
+//         count = 0;
+//         keep = keep_in;
+//         for (int i = 0; i < DATA_BYTE_WD; i++) begin
+//             count = count + keep[0];
+//             keep = keep >> 1;
+            
+//         end
+//         count = (pattern == 1'b1) ? count : (DATA_BYTE_WD - count);
+//     end
+
+// endmodule
 
 module bitcounter #( // bit counter to count 1s or 0s in keep signal
     parameter DATA_WD = 32,
@@ -257,24 +289,21 @@ module axi #(
     logic [DATA_WD-1 : 0] data_SH_0; // Temp data placeholder for shifted data 0
     logic [DATA_WD-1 : 0] data_SH_1; // Temp data placeholder for shifted data 1
 
-    byte_shifter shift_header ( // hbuffer.header << 8 * $countbits(hbuffer.keep, 1'b0)
+    byte_shifter_left shift_header ( // hbuffer.header << 8 * $countbits(hbuffer.keep, 1'b0)
         .data_in(hbuffer.header),
         .num(count_header_0),
-        .dir(1'b0),
         .data_out(data_SH_H)
     );
 
-    byte_shifter shift_data0 ( // dbuffer[0].data >> 8 * $countbits(hbuffer.keep, 1'b1)
+    byte_shifter_right shift_data0 ( // dbuffer[0].data >> 8 * $countbits(hbuffer.keep, 1'b1)
         .data_in(dbuffer[0].data),
         .num(count_header_1),
-        .dir(1'b1),
         .data_out(data_SH_0)
     );
 
-    byte_shifter shift_data1 ( // dbuffer[1].data << 8 * $countbits(hbuffer.keep, 1'b0)
+    byte_shifter_left shift_data1 ( // dbuffer[1].data << 8 * $countbits(hbuffer.keep, 1'b0)
         .data_in(dbuffer[1].data),
         .num(count_header_0),
-        .dir(1'b0),
         .data_out(data_SH_1)
     );
 
